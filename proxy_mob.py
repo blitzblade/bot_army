@@ -1,43 +1,58 @@
-from multiprocessing import Pool, cpu_count, freeze_support
+from browsermobproxy import Server
+from time import sleep 
 from selenium import webdriver
+import sys
+
+from multiprocessing import Pool, cpu_count, freeze_support
 from urllib.request import Request, urlopen
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 from time import sleep
 import random
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.action_chains import ActionChains
 
+global server
+server = None
 
-def get_proxies(ua):
-    proxies = []
-    proxies_req = Request('https://www.sslproxies.org/')
-    proxies_req.add_header('User-Agent', ua.random)
-    proxies_doc = urlopen(proxies_req).read().decode('utf8')
+def print_err(err):
+    print(str(err) + " on line " + str(sys.exc_info()[2].tb_lineno))
 
-    soup = BeautifulSoup(proxies_doc, 'html.parser')
-    proxies_table = soup.find(id='proxylisttable')
-
-  # Save proxies in the array
-    for row in proxies_table.tbody.find_all('tr'):
-        proxies.append({
-                        'ip':   row.find_all('td')[0].string,
-                        'port': row.find_all('td')[1].string})
-    return proxies
-
-def random_proxy(proxies):
-  return random.choice(proxies)
 
 def search_string_to_query(search_string):
     search = search_string.split(' ')
     query = '+'.join(search)
     return query
 
-def search_and_click(ua,sleep_time,search_string,proxy,proxies,sleep_after):
+def destroy_driver(driver):
+    try:
+        driver.quit()
+        if server != None:
+            server.stop()
+    except Exception as ex:
+        print_err(ex)
 
-    options = webdriver.ChromeOptions()
-    options.add_argument('--proxy-server=%s'%(proxy['ip'] + ':' + proxy['port']))
-    options.add_argument('user-agent=%s'%ua.random)
+def create_driver(url=None):
 
-    driver = webdriver.Chrome(chrome_options=options)
+    sleep(1)
+    server = Server("/Users/kwesi_dadson/kwesi_bin/browsermob-proxy-2.1.4/bin/browsermob-proxy")
+    server.start()
+    proxy = server.create_proxy()
+    sleep(1)
+
+    profile  = webdriver.FirefoxProfile()
+    profile.set_proxy(proxy.selenium_proxy())
+    profile.accept_untrusted_certs = True
+    driver = webdriver.Firefox(firefox_profile=profile)
+    if url:
+        driver.get(url)
+    return driver
+
+
+def search_and_click(ua,sleep_time,search_string,driver,sleep_after):
+
     query = search_string_to_query(search_string)
     driver.get('https://www.youtube.com/results?search_query=%s'%query)
     
@@ -46,13 +61,35 @@ def search_and_click(ua,sleep_time,search_string,proxy,proxies,sleep_after):
         section_list = driver.find_element_by_xpath('//a[contains(@href,"watch")]')
         section_list.click()
         print("Section list found...")
-        sleep(random(0, 10))
+        sleep(random.randint(10, 20))
+        # wait = WebDriverWait(driver, 15)    
+        # wait.until(EC.element_to_be_clickable((By.XPATH,"//button[@aria-label='More actions']"))).click()
+        # link.click()
         # link = section_list.find_element_by_class_name('yt-uix-tile-link')
+        # link = driver.find_element_by_xpath("//div[@id='menu']/ytd-menu-renderer/yt-icon-button[@id='button']")
         link = driver.find_element_by_xpath("//button[@aria-label='More actions']")
-        link.click()
+        
+        # wait = WebDriverWait(driver, 15)    
+        # wait.until(EC.element_to_be_clickable((By.XPATH,"//button[@aria-label='More actions']"))).click()
+        # link.click()
+        print("Link element: ", link)
+        driver.execute_script("arguments[0].setAttribute('id','blitz_button');", link)
+        sleep(2)
+        print("attribute set...")
+        driver.execute_script("document.getElementById('blitz_button').click();")
+        # actions = ActionChains(driver)
+        # actions.move_to_element(link).perform()
+        print("More actions button found...")
+        
+        # sleep(500)
+        # link.click()
+        
         print("Tile link found")
         report_link = driver.find_element_by_xpath("//*[text()='Report']")
+        sleep(1)
         report_link.click()
+        print("Report clicked...")
+        sleep(500)
 
         report_radio_button = driver.find_element_by_xpath("//*[text()='Harassment or bullying']")
         report_radio_button.click()
@@ -63,17 +100,17 @@ def search_and_click(ua,sleep_time,search_string,proxy,proxies,sleep_after):
         print("Successfully reported...")
         sleep(sleep_time)
     
-        driver.quit()
+        destroy_driver(driver)
         print("Browser quit gracefully")
         
         if sleep_after is not None:
             sleep(sleep_after)
     
     except Exception as ex:
-        print(ex)
-        driver.quit()
-        proxy = random.choice(proxies)
-        search_and_click(ua,sleep_time,search_string,proxy,proxies,sleep_after)
+        print_err(ex)
+        destroy_driver(driver)
+        driver = create_driver()
+        search_and_click(ua,sleep_time,search_string,driver,sleep_after)
         
 def parse_line(line):
     delim_loc = line.find('=')
@@ -119,17 +156,15 @@ if __name__ == "__main__":
         threads = int(cpu_count()*0.75)
         pool = Pool(threads)
         ua = UserAgent()
-        proxies = get_proxies(ua)
         for i in range(views):
             sleep_time = random.randint(min_watch,max_watch)
-            proxy = random_proxy(proxies)
-            pool.apply_async(search_and_click, args=[ua,sleep_time,search_string,proxy,proxies,sleep_after])
+            driver = create_driver()
+            pool.apply_async(search_and_click, args=[ua,sleep_time,search_string,driver,sleep_after])
         pool.close()
         pool.join()
     else:
         ua = UserAgent()
-        proxies = get_proxies(ua)
         for i in range(views):
             sleep_time = random.randint(min_watch,max_watch)
-            proxy = random_proxy(proxies)
-            search_and_click(ua,sleep_time,search_string,proxy,proxies,sleep_after)
+            driver = create_driver()
+            search_and_click(ua,sleep_time,search_string,driver,sleep_after)

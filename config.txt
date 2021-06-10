@@ -1,0 +1,6 @@
+search_string = THE SEAT WITH JOHN BOADU, GENERAL SECRETARY, NPP & ALEX KWAKU TETTEH
+min_watch = 10
+max_watch = 45
+wait_after = 15
+views = 100
+multicore = False
